@@ -98,11 +98,12 @@ def generate_strategy_brief(context: dict[str, Any], enrichment: dict[str, Any] 
         "graph_context": context,
         "external_enrichment": enrichment or {"live": False, "source": "Not run"},
         "instructions": [
-            "Write a concise stage-dashboard briefing with: situation, suggested opener, coordination warning, and evidence gaps.",
+            "Return exactly three short, punchy, actionable bullet points and no other text.",
+            "The bullets must cover: who the lead is and why they match; a tailored opener; teammate coordination and evidence gaps.",
             "Use only the supplied facts. Do not invent financial metrics, recent news, relationships, or attendee interests.",
             "Clearly label missing data. If locationShared is false, preserve anonymity and do not infer identity.",
             "If another teammate is already talking to the lead, recommend coordinating rather than interrupting.",
-            "Keep it under 130 words and make it immediately usable by a field team.",
+            "Use the salesperson, lead, company, external facts, and graph_path when supplied. Keep each bullet concise and field-ready.",
         ],
     }
     try:
@@ -116,9 +117,31 @@ def generate_strategy_brief(context: dict[str, Any], enrichment: dict[str, Any] 
             ],
         )
         text = completion.choices[0].message.content
-        return text.strip() if text else fallback_brief(context, enrichment)
+        if text:
+            lines = [line.strip() for line in text.splitlines() if line.strip()]
+            if len(lines) == 3 and all(line.startswith(("-", "*", "•")) for line in lines):
+                return "\n".join(lines)
+        return _fallback_with_notice(
+            context,
+            enrichment,
+            "The AI response did not match the required three-bullet format; deterministic fallback used.",
+        )
     except Exception as exc:
-        return fallback_brief(context, enrichment) + f"\n\n_OpenAI unavailable; deterministic fallback used ({type(exc).__name__})._"
+        return _fallback_with_notice(
+            context,
+            enrichment,
+            f"OpenAI unavailable ({type(exc).__name__}); deterministic fallback used.",
+        )
+
+
+def _fallback_with_notice(
+    context: dict[str, Any],
+    enrichment: dict[str, Any] | None,
+    notice: str,
+) -> str:
+    lines = fallback_brief(context, enrichment).splitlines()
+    lines[-1] += f" {notice}"
+    return "\n".join(lines)
 
 
 def fallback_brief(context: dict[str, Any], enrichment: dict[str, Any] | None = None) -> str:
@@ -132,11 +155,12 @@ def fallback_brief(context: dict[str, Any], enrichment: dict[str, Any] | None = 
     warning = f"Check with {teammate} before approaching; the graph records a prior interaction." if context.get("teammate") else "No teammate interaction was returned by the graph."
     source = (enrichment or {}).get("source", "No external enrichment run")
     return (
-        f"**Situation:** {identity} is associated with {company}. Status: {context.get('status') or 'unknown'}. "
-        f"Company tier: {context.get('tier') or 'unclassified'}; funding/valuation: {context.get('funding') or 'not available'}; "
-        f"employees: {context.get('employees') or 'not available'}.\\n\\n"
-        f"**Suggested opener:** “I noticed {company} is connected to {session}. What are you focused on there?” "
-        f"Keep the conversation aligned to {focus}.\\n\\n"
-        f"**Coordination:** {warning}\\n\\n"
-        f"**Evidence:** Graph context plus: {source}. Verify any missing firmographic facts before presenting them as current."
+        f"- **Who & why:** {identity} is linked to {company} and {session}; "
+        f"status: {context.get('status') or 'unknown'}. Company facts: "
+        f"{context.get('employees') or 'employee count unknown'}; "
+        f"{context.get('funding') or 'funding not available'}.\n"
+        f"- **Say:** “I noticed {company} is connected to {session}. What are you focused on there?” "
+        f"Keep it relevant to {focus}.\n"
+        f"- **Coordinate & verify:** {warning} Evidence source: {source}. "
+        "Confirm missing or time-sensitive facts before presenting them as current."
     )

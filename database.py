@@ -6,7 +6,9 @@ Never clears or reseeds an existing graph automatically.
 from __future__ import annotations
 
 import os
+import re
 import time
+from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any
 
@@ -19,7 +21,7 @@ class DatabaseError(RuntimeError):
 
 def _connection_settings() -> dict[str, Any]:
     return {
-        "host": os.getenv("FALKORDB_HOST", "localhost"),
+        "host": os.getenv("FALKORDB_HOST", "127.0.0.1"),
         "port": int(os.getenv("FALKORDB_PORT", "6379")),
         "password": os.getenv("FALKORDB_PASSWORD") or None,
         "username": os.getenv("FALKORDB_USERNAME") or None,
@@ -42,6 +44,21 @@ def get_graph():
         ) from exc
 
 
+@lru_cache(maxsize=2)
+def get_named_graph(graph_name: str):
+    """Return a separately named graph using the configured FalkorDB server."""
+    settings = _connection_settings()
+    kwargs = {key: value for key, value in settings.items() if value is not None}
+    try:
+        db = FalkorDB(**kwargs)
+        return db.select_graph(graph_name)
+    except Exception as exc:
+        raise DatabaseError(
+            "Could not connect to FalkorDB. Confirm Docker is running and "
+            "FALKORDB_HOST/FALKORDB_PORT are correct."
+        ) from exc
+
+
 def run_query(cypher: str, params: dict[str, Any] | None = None, retries: int = 1):
     """Execute a parameterized Cypher query with a small bounded retry."""
     last_error = None
@@ -54,6 +71,19 @@ def run_query(cypher: str, params: dict[str, Any] | None = None, retries: int = 
             if attempt < retries:
                 time.sleep(0.15 * (attempt + 1))
     raise DatabaseError(f"FalkorDB query failed: {last_error}") from last_error
+
+
+def run_query_on_graph(
+    graph_name: str, cypher: str, params: dict[str, Any] | None = None
+):
+    """Run one parameterized query on a named graph using the configured server."""
+    try:
+        graph = get_named_graph(graph_name)
+        return graph.query(cypher, params or {})
+    except DatabaseError:
+        raise
+    except Exception as exc:
+        raise DatabaseError(f"FalkorDB query failed: {exc}") from exc
 
 
 def rows(cypher: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
@@ -75,6 +105,25 @@ def health_check() -> tuple[bool, str]:
         return True, "Connected"
     except Exception as exc:
         return False, str(exc)
+
+
+def add_early_access_signup(email: str) -> None:
+    """Store one explicitly opted-in early-access email in the graph backend."""
+    normalized_email = email.strip().lower()
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", normalized_email):
+        raise ValueError("Enter a valid email address.")
+
+    run_query(
+        """
+        MERGE (signup:EarlyAccessSignup {email:$email})
+        ON CREATE SET signup.createdAt=$created_at
+        SET signup.consent=true
+        """,
+        {
+            "email": normalized_email,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
 
 
 def seed_demo_data() -> tuple[bool, str]:
