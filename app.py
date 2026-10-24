@@ -4,9 +4,28 @@ from __future__ import annotations
 import os
 import importlib
 from typing import Any
+from urllib.parse import quote_plus
 
 import pandas as pd
 import streamlit as st
+
+
+def _load_local_env() -> None:
+    """Load simple KEY=value entries from the local, gitignored .env file."""
+    env_path = os.path.join(os.path.dirname(__file__), ".env")
+    try:
+        with open(env_path, encoding="utf-8") as env_file:
+            for raw_line in env_file:
+                line = raw_line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+    except FileNotFoundError:
+        pass
+
+
+_load_local_env()
 
 import database as database_layer
 
@@ -40,9 +59,8 @@ render_simulation = conference_simulation_module.render_simulation
 
 
 PAGES = (
-    "Marketing",
-    "Conference setup",
-    "Business demo",
+    "Conference Login",
+    "Business Login",
 )
 DEMO_STEPS = (
     "The sign-up list",
@@ -54,7 +72,7 @@ DEMO_STEPS = (
 
 
 def _go_to_demo() -> None:
-    st.session_state["page"] = "Business demo"
+    st.session_state["page"] = "Business Login"
 
 
 def _go_to_marketing() -> None:
@@ -62,7 +80,7 @@ def _go_to_marketing() -> None:
 
 
 def _go_to_setup() -> None:
-    st.session_state["page"] = "Conference setup"
+    st.session_state["page"] = "Conference Login"
 
 
 def _go_to_login() -> None:
@@ -82,9 +100,10 @@ def _show_setup_preview() -> None:
 
 
 def _complete_setup_simulation() -> None:
-    st.session_state["conference_setup_result"] = st.session_state[
-        "conference_setup_sharing"
-    ]
+    st.session_state["conference_setup_result"] = (
+        st.session_state.get("conference_setup_choice", "Share my badge")
+        == "Share my badge"
+    )
 
 
 def _restart_setup_simulation() -> None:
@@ -94,6 +113,44 @@ def _restart_setup_simulation() -> None:
 
 def _set_page(page: str) -> None:
     st.session_state["page"] = page
+
+
+def _select_day_map_attendee(name: str) -> None:
+    st.session_state["day_map_selected"] = name
+
+
+def _advance_guided() -> None:
+    st.session_state["guided_stage"] = min(5, st.session_state.get("guided_stage", 1) + 1)
+
+
+def _reset_guided() -> None:
+    st.session_state["guided_stage"] = 1
+
+
+def _render_guided_journey() -> None:
+    stage = st.session_state.get("guided_stage", 1)
+    stages = ("Setup", "Attendees", "Team prep", "Conference day", "Results")
+    actor_data = (
+        ("Olivia", "Conference organizer", "Connect DevConf registrations so badge choices can be prepared.", "Connect sample registrations", "120 registrations connected · 36 companies · 18 sessions · 4 exhibitor teams"),
+        ("Sarah + private attendee", "Conference attendees", "Activate one sharing badge and preserve one private choice.", "Activate attendee badges", "Sarah is shareable · the private attendee stays anonymous"),
+        ("Alice + Bob", "Business field team", "Prepare the lead list from badge details and public company signals.", "Prepare the field team", "Bright Data public snapshots loaded · FalkorDB lead matches ready"),
+        ("Alice + Bob", "Business field team", "Go live and coordinate the next conversation from the phone.", "Go live", "Sarah is covered once · a duplicate pitch is stopped · Tom is available"),
+        ("Olivia + field team", "Conference outcomes", "Review business results and attendee privacy outcomes.", "Restart the journey", "Meetings facilitated · double pitches stopped · private attendee protected"),
+    )
+    actor, role, instruction, action, result = actor_data[stage - 1]
+    st.markdown('<div class="ib-label" style="--accent:#2440FF">GUIDED DEMO · ONE CONFERENCE STORY</div><h1>DevConf 2026, from setup to results</h1>', unsafe_allow_html=True)
+    st.markdown('<div class="ib-journey-frame">' + ''.join(f'<span class="ib-journey-chip {"current" if i == stage else "done" if i < stage else "locked"}">{i} · {label}</span>' for i, label in enumerate(stages, 1)) + f'<div class="ib-journey-actor"><strong>{actor}</strong> · {role}</div><div class="ib-journey-instruction">Step {stage} of 5 · {instruction}</div></div>', unsafe_allow_html=True)
+    left, right = st.columns([1.25, .75], gap="medium")
+    with left:
+        st.markdown(f'<div class="ib-card"><div class="ib-label">STEP {stage} · {stages[stage-1].upper()}</div><h2>{instruction}</h2><p>Demo data only. This action is local and completes immediately.</p></div>', unsafe_allow_html=True)
+        if stage < 5:
+            st.button(action, type="primary", on_click=_advance_guided, use_container_width=True)
+        else:
+            st.button(action, on_click=_reset_guided, use_container_width=True)
+    with right:
+        st.markdown(f'<div class="ib-panel"><div class="ib-label">RESULT</div><h3>{result}</h3><p>Next: {stages[stage] if stage < 5 else "Run it again"}</p></div>', unsafe_allow_html=True)
+    with st.expander("How did this work?"):
+        st.caption("The guided path uses local demo state. The full booth dashboard still provides graph reads, enrichment actions, and strategy briefs when opened explicitly.")
 
 
 def _advance_demo() -> None:
@@ -206,6 +263,8 @@ def _install_styles(*, dark_mode: bool = False) -> None:
         h3 { font-size:1.35rem; line-height:1.22; }
         p, li, label { line-height: 1.55; }
         .ib-brand { display:flex; align-items:center; gap:12px; color:#0B1F3A; font-weight:900; font-size:1.1rem; }
+        .ib-home-brand { text-decoration:none !important; cursor:pointer; margin-bottom:12px; }
+        .ib-home-brand + p { margin-top:12px !important; }
         .ib-icon { display:inline-grid; place-items:center; width:30px; height:30px; flex:0 0 30px; color:#2440FF; background:transparent; border:0; box-shadow:none; vertical-align:middle; }
         .ib-icon svg { width:22px; height:22px; }
         .ib-nav-button { display:flex; align-items:center; gap:9px; }
@@ -226,6 +285,9 @@ def _install_styles(*, dark_mode: bool = False) -> None:
         .ib-setup-row .ib-label { grid-column:1 / -1; }
         .ib-setup-row h3 { font-size:1rem; line-height:1.22; margin:0; }
         .ib-setup-row p { font-size:.9rem; line-height:1.35; margin:0; color:#425166; }
+        .ib-setup-card { height:100%; box-sizing:border-box; padding:18px; background:#FFFBEA; border:2px solid #0B1F3A; border-top:6px solid #00C896; border-radius:16px; box-shadow:4px 4px 0 #0B1F3A; }
+        .ib-setup-card h3 { margin:.45rem 0 .55rem; font-size:1.15rem; line-height:1.2; }
+        .ib-setup-card p { margin:0; color:#425166; line-height:1.45; }
         .ib-home-cta { min-height:100%; padding:18px; border:2px solid #0B1F3A; border-radius:18px; background:#FFFBEA; }
         .ib-home-cta h3 { margin:0 0 6px; font-size:1.15rem; }
         .ib-home-cta p { min-height:3em; margin:0 0 12px; color:#425166; font-size:.92rem; }
@@ -239,9 +301,14 @@ def _install_styles(*, dark_mode: bool = False) -> None:
         .ib-hero { background:#FFE500; color:#0B1F3A; border-radius:24px; padding:clamp(24px,5vw,58px); border:3px solid #0B1F3A; box-shadow:10px 10px 0 #0B1F3A; margin:8px 8px 28px 0; overflow:hidden; }
         .ib-hero h1 { font-size:clamp(2.2rem,5vw,4.7rem); line-height:1.02; margin:.5rem 0 1rem; max-width:850px; }
         .ib-label { text-transform:uppercase; letter-spacing:.1em; font-weight:850; font-size:.76rem; color:var(--accent,#2440FF); }
-        .ib-card { background:#FFFBEA; border:2px solid #0B1F3A; border-radius:20px; padding:clamp(16px,1.7vw,22px); box-shadow:4px 4px 0 #0B1F3A; height:100%; }
-        .ib-card h3 { font-size:clamp(1.12rem,1.45vw,1.4rem); line-height:1.2; letter-spacing:-.02em; margin:.55rem 0 .65rem; overflow-wrap:normal; }
-        .ib-card p { font-size:.96rem; line-height:1.5; }
+        [data-testid="column"] { min-width:0 !important; }
+        .ib-card { box-sizing:border-box; min-width:0; overflow:hidden; background:#FFFBEA; border:2px solid #0B1F3A; border-radius:20px; padding:clamp(16px,1.7vw,22px); box-shadow:4px 4px 0 #0B1F3A; height:100%; }
+        .ib-card h3 { min-width:0; font-size:clamp(1.12rem,1.45vw,1.4rem); line-height:1.2; letter-spacing:-.02em; margin:.55rem 0 .65rem; overflow-wrap:anywhere; }
+        .ib-card h3 span { min-width:0; overflow-wrap:anywhere; }
+        .ib-card p { font-size:.96rem; line-height:1.5; overflow-wrap:anywhere; }
+        .ib-card + p { margin-top:18px; }
+        [data-testid="stExpander"] { margin:24px 0 30px !important; }
+        .ib-demo-link { clear:both; display:block; margin:26px 0 8px; padding-top:4px; }
         .ib-panel { background:#F3EAD8; border-radius:20px; border:2px solid #0B1F3A; padding:clamp(16px,1.7vw,22px); }
         .ib-dark { background:#0B1F3A; color:#FFFBEA; border-radius:20px; padding:22px; }
         .ib-dark h2, .ib-dark h3, .ib-dark p { color:#FFFBEA; }
@@ -250,6 +317,153 @@ def _install_styles(*, dark_mode: bool = False) -> None:
         .ib-hot { display:inline-block; border-radius:999px; padding:5px 11px; background:#FFE500; color:#0B1F3A; font-size:.8rem; font-weight:900; }
         .ib-phone { max-width:410px; margin:auto; padding:18px; border:3px solid #0B1F3A; border-radius:34px; background:#FFFBEA; box-shadow:8px 8px 0 #2440FF; }
         .ib-phone-notch { width:92px; height:9px; border-radius:99px; background:#0B1F3A; margin:0 auto 16px; }
+        .ib-day-map { display:grid; grid-template-columns:minmax(0,1.45fr) minmax(230px,.75fr); gap:16px; margin:18px 0 14px; }
+        .ib-phone-frame { max-width:440px; margin:18px auto 22px; padding:10px; border:8px solid #0B1F3A; border-radius:38px; background:#0B1F3A; box-shadow:9px 9px 0 #2440FF; }
+        .ib-phone-frame .ib-phone-notch { width:92px; height:8px; margin:0 auto 7px; border-radius:99px; background:#FFFBEA; }
+        .ib-phone-status { display:flex; justify-content:space-between; padding:0 8px 8px; color:#FFFBEA; font-size:.65rem; font-weight:850; }
+        .ib-phone-app-bar { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 8px 10px; color:#FFFBEA; }
+        .ib-phone-app-brand { display:flex; align-items:center; gap:7px; font-size:.82rem; font-weight:900; }
+        .ib-phone-app-brand svg { width:22px; height:22px; }
+        .ib-phone-more { letter-spacing:.16em; color:#C6D2FF; font-weight:900; }
+        .ib-phone-nav { display:flex; justify-content:space-around; gap:4px; margin-top:9px; padding:7px 2px 2px; border-top:1px solid rgba(255,251,234,.25); color:#B8C5E0; }
+        .ib-phone-nav span, .ib-phone-nav a { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; min-width:48px; font-size:.58rem; color:inherit; text-decoration:none; cursor:pointer; }
+        .ib-phone-nav b { font-size:1rem; line-height:1; }
+        .ib-phone-nav small { font-size:.58rem; }
+        .ib-phone-nav .active { color:#FFE500; }
+        .ib-phone-lead-card { margin:10px 0 0; box-shadow:none; border-color:#2440FF; }
+        .ib-phone-frame .ib-map-detail h4 { font-size:1rem; }
+        .ib-phone-frame.duo { max-width:930px; display:grid; grid-template-columns:minmax(250px,5.4fr) minmax(0,7.6fr); column-gap:12px; position:relative; }
+        .ib-phone-frame.duo.closed { width:280px; max-width:280px; display:block; }
+        .ib-phone-frame.duo.closed .ib-map-card { display:none; }
+        .ib-phone-frame.duo.closed .ib-map-list { max-height:470px; min-height:470px; border-radius:0; border-width:8px; border-top:0; border-bottom:0; }
+        .ib-phone-frame.duo.closed .ib-phone-app-bar { border:8px solid #0B1F3A; border-bottom:0; border-radius:34px 34px 0 0; padding-top:24px; position:relative; }
+        .ib-phone-frame.duo.closed .ib-phone-app-bar::before { content:""; position:absolute; top:8px; left:50%; width:76px; height:7px; transform:translateX(-50%); border-radius:99px; background:#FFFBEA; }
+        .ib-phone-frame.duo.closed .ib-phone-lead-card { margin:0; border-width:8px; border-top:0; border-radius:0; }
+        .ib-phone-frame.duo.closed .ib-phone-nav { border:8px solid #0B1F3A; border-top:0; border-radius:0 0 34px 34px; }
+        .ib-phone-frame.duo.open { width:min(930px, calc(100vw - 64px)) !important; max-width:930px !important; box-sizing:border-box; }
+        .ib-phone-frame.duo.open .ib-day-map { height:min(664px, calc((100vw - 64px) / 1.4)); min-height:0; aspect-ratio:1.4 / 1; }
+        .ib-phone-frame.duo.open .ib-map-list, .ib-phone-frame.duo.open .ib-map-card { height:100%; max-height:100%; }
+        .ib-phone-frame.duo.open .ib-map-canvas { min-height:0; height:calc(100% - 112px); }
+        .ib-phone-frame.duo.open { overflow:hidden; }
+        .ib-phone-frame.duo.open .ib-map-list { overflow-y:auto; overflow-x:hidden; }
+        .ib-phone-frame.duo.open .ib-map-card { overflow:hidden; }
+        .ib-phone-frame.duo.open .ib-map-list h4 { margin-bottom:6px; }
+        .ib-phone-frame.duo.open .ib-map-list > p { margin-bottom:6px; font-size:.72rem; line-height:1.25; }
+        .ib-phone-frame.duo.open .ib-map-statuses { gap:4px; margin-bottom:4px; }
+        .ib-phone-frame.duo.open .ib-map-group-title { margin:7px 0 1px; font-size:.62rem; }
+        .ib-phone-frame.duo.open .ib-map-person { gap:1px 6px; padding:5px 0; }
+        .ib-phone-frame.duo.open .ib-map-person span { font-size:.68rem; }
+        .ib-phone-frame.duo.open .ib-map-person small { font-size:.66rem; }
+        .ib-phone-frame.duo.open .ib-phone-lead-card { margin-top:8px; padding:10px 14px; }
+        .ib-phone-frame.duo.open .ib-phone-lead-card p { margin:3px 0; line-height:1.25; }
+        .ib-phone-frame.duo.closed { width:300px !important; max-width:300px !important; box-sizing:border-box; }
+        .ib-phone-frame.duo.closed .ib-map-list { height:520px; min-height:520px; max-height:520px; }
+        .ib-phone-frame.duo::before { content:""; position:absolute; z-index:8; top:68px; bottom:14px; left:50%; width:2px; transform:translateX(-50%); background:rgba(255,251,234,.22); pointer-events:none; }
+        .ib-phone-frame.duo .ib-phone-notch, .ib-phone-frame.duo .ib-phone-status, .ib-phone-frame.duo .ib-phone-app-bar,
+        .ib-phone-frame.duo .ib-phone-lead-card, .ib-phone-frame.duo .ib-phone-nav { grid-column:1 / -1; }
+        .ib-phone-frame.duo .ib-day-map { grid-column:1 / -1; grid-template-columns:minmax(250px,5.4fr) minmax(0,7.6fr); gap:12px; }
+        .ib-phone-frame.duo .ib-map-list { grid-column:1; grid-row:1; min-height:100%; border-radius:34px; border:8px solid #0B1F3A; border-right:0; box-shadow:none; }
+        .ib-phone-frame.duo .ib-map-card { grid-column:2; grid-row:1; min-height:100%; border-radius:34px; border:8px solid #0B1F3A; box-shadow:9px 9px 0 #2440FF; }
+        .ib-phone-frame.duo .ib-map-canvas { min-height:390px; }
+        .ib-phone-frame.duo .ib-map-list { max-height:390px; }
+        @media (max-width: 760px) {
+            .ib-phone-frame.duo, .ib-phone-frame.duo.closed { grid-template-columns:1fr; }
+            .ib-phone-frame.duo.open { width:calc(100vw - 32px) !important; max-width:440px !important; }
+            .ib-phone-frame.duo.closed { width:300px !important; max-width:calc(100vw - 32px) !important; }
+            .ib-phone-frame.duo::before { display:none; }
+            .ib-phone-frame.duo .ib-day-map { grid-template-columns:1fr; }
+            .ib-phone-frame.duo .ib-map-card, .ib-phone-frame.duo .ib-map-list { grid-column:1; grid-row:auto; border:2px solid #0B1F3A; border-radius:14px; box-shadow:none; }
+            .ib-phone-frame.duo .ib-map-list { max-height:360px; }
+        }
+        .ib-phone-frame .ib-day-map { grid-template-columns:1fr; gap:10px; margin:0; }
+        .ib-phone-frame .ib-map-card, .ib-phone-frame .ib-map-list { box-shadow:none; border-color:#0B1F3A; border-radius:14px; padding:11px; }
+        .ib-phone-frame .ib-map-canvas { min-height:300px; margin-top:8px; }
+        .ib-phone-frame .ib-map-header strong { font-size:.92rem; }
+        .ib-phone-frame .ib-map-header span { font-size:.66rem; }
+        .ib-phone-frame .ib-map-list { max-height:360px; overflow:auto; }
+        .ib-phone-frame .ib-map-legend { gap:5px 8px; font-size:.64rem; }
+        .ib-phone-frame .ib-map-person { padding:7px 0; }
+        .ib-phone-frame.open-only .ib-map-marker.busy, .ib-phone-frame.open-only .ib-map-marker.completed,
+        .ib-phone-frame.open-only .ib-map-route.busy, .ib-phone-frame.open-only .ib-map-route.completed,
+        .ib-phone-frame.open-only .ib-map-group.group-busy, .ib-phone-frame.open-only .ib-map-group.group-completed,
+        .ib-phone-frame.open-only .ib-status-chip.busy, .ib-phone-frame.open-only .ib-status-chip.completed { display:none; }
+        .ib-map-card, .ib-map-list { box-sizing:border-box; min-width:0; border:2px solid #0B1F3A; border-radius:18px; background:#FFFBEA; padding:14px; box-shadow:4px 4px 0 #0B1F3A; }
+        .ib-map-card { overflow:hidden; }
+        .ib-map-header { display:flex; justify-content:space-between; gap:10px; align-items:baseline; flex-wrap:wrap; }
+        .ib-map-header strong { font-size:1.05rem; }
+        .ib-map-header span { color:#536071; font-size:.78rem; font-weight:750; }
+        .ib-map-canvas { position:relative; min-height:360px; margin-top:12px; overflow:hidden; border:2px solid #8A8882; border-radius:16px; background:#E5E2DA; }
+        .ib-map-grid { position:absolute; inset:0; opacity:.78; background-image:linear-gradient(26deg,transparent 0 22%,rgba(255,255,255,.9) 22% 25%,transparent 25% 100%),linear-gradient(116deg,transparent 0 43%,rgba(255,255,255,.9) 43% 47%,transparent 47% 100%),linear-gradient(0deg,transparent 0 70%,rgba(255,255,255,.92) 70% 74%,transparent 74% 100%),repeating-linear-gradient(90deg,rgba(135,132,123,.16) 0 1px,transparent 1px 46px),repeating-linear-gradient(0deg,rgba(135,132,123,.14) 0 1px,transparent 1px 42px); }
+        .ib-map-block { position:absolute; z-index:1; border:1px solid #BDC7B8; border-radius:5px; background:#D5E0D0; box-shadow:inset 0 0 0 3px rgba(255,255,255,.24); }
+        .ib-map-block.beige { background:#E4D9C3; border-color:#CEC0A4; }
+        .ib-map-road { position:absolute; z-index:1; height:11px; border-top:1px solid #C4C1BA; border-bottom:1px solid #C4C1BA; background:#FFF; box-shadow:0 0 0 2px rgba(255,255,255,.3); }
+        .ib-map-road.main { width:125%; left:-12%; top:48%; transform:rotate(-14deg); }
+        .ib-map-road.cross { width:120%; left:-10%; top:50%; transform:rotate(38deg); }
+        .ib-map-road.vertical { width:110%; left:-5%; top:32%; transform:rotate(82deg); }
+        .ib-map-label { position:absolute; z-index:1; color:#77756F; font-size:.58rem; letter-spacing:.08em; font-weight:850; text-shadow:0 1px rgba(255,255,255,.9); }
+        .ib-map-controls { position:absolute; z-index:4; top:10px; right:10px; display:flex; flex-direction:column; overflow:hidden; border:1px solid #A6A39C; border-radius:8px; background:rgba(255,255,255,.94); box-shadow:0 2px 6px rgba(11,31,58,.2); }
+        .ib-map-controls span { display:grid; place-items:center; width:27px; height:27px; color:#425166; border-bottom:1px solid #DDD9D0; font-weight:900; }
+        .ib-map-controls span:last-child { border-bottom:0; color:#2440FF; }
+        .ib-map-scale { position:absolute; z-index:3; right:12px; bottom:12px; display:flex; align-items:flex-end; gap:5px; color:#536071; font-size:.62rem; font-weight:850; text-shadow:0 1px rgba(255,255,255,.9); }
+        .ib-map-scale i { display:block; width:44px; height:5px; border:1px solid #536071; border-top:0; background:rgba(255,255,255,.72); }
+        .ib-map-canvas::after { content:"HALL A  ·  DEVCONF 2026"; position:absolute; left:12px; bottom:10px; z-index:2; color:#6C6A65; font-size:.68rem; letter-spacing:.1em; font-weight:900; text-shadow:0 1px rgba(255,255,255,.9); }
+        .ib-map-routes { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+        .ib-map-route { fill:none; stroke:#2440FF; stroke-width:1.3; stroke-dasharray:4 3; opacity:.65; }
+        .ib-map-origin, .ib-map-marker { position:absolute; z-index:2; transform:translate(-50%,-50%); text-align:center; font-size:.68rem; line-height:1.1; }
+        .ib-map-origin > span, .ib-map-marker > span { display:grid; place-items:center; width:30px; height:30px; margin:auto; border:3px solid #0B1F3A; border-radius:50%; background:#FFE500; color:#0B1F3A; font-size:.82rem; font-weight:950; box-shadow:2px 2px 0 #0B1F3A; }
+        .ib-map-origin strong { display:block; margin-top:4px; color:#0B1F3A; }
+        .ib-map-origin small { display:block; color:#425166; font-weight:800; }
+        .ib-map-marker > span { width:24px; height:24px; border-width:2px; background:#FFFBEA; font-size:.68rem; }
+        .ib-map-marker.hot > span { background:#FF8AD6; }
+        .ib-map-marker.busy > span { background:#FF8AD6; }
+        .ib-map-marker.open > span { background:#E7E9FF; color:#2440FF; }
+        .ib-map-marker.completed > span { background:#00CF9E; }
+        .ib-map-marker.private > span { background:#F3EAD8; color:#536071; }
+        .ib-map-marker div { margin-top:3px; padding:3px 5px; border-radius:6px; background:rgba(255,251,234,.92); color:#0B1F3A; white-space:nowrap; font-weight:850; }
+        .ib-map-marker small { display:block; margin-top:2px; color:#2440FF; font-weight:950; }
+        .ib-map-legend { display:flex; flex-wrap:wrap; gap:8px 14px; margin-top:10px; color:#425166; font-size:.75rem; font-weight:750; }
+        .ib-map-legend span { display:inline-flex; align-items:center; gap:4px; }
+        .ib-map-list h4 { margin:0 0 9px; font-size:1rem; }
+        .ib-map-list > p { margin:0 0 10px; color:#536071; font-size:.8rem; line-height:1.35; }
+        .ib-map-statuses { display:flex; flex-wrap:wrap; gap:5px; margin:0 0 7px; }
+        .ib-status-chip { display:inline-block; width:max-content; padding:3px 6px; border-radius:999px; font-size:.64rem; line-height:1.1; font-weight:900; letter-spacing:.02em; }
+        .ib-status-chip.open { background:#E7E9FF; color:#2440FF; }
+        .ib-status-chip.busy { background:#FFE4F2; color:#A21760; }
+        .ib-status-chip.completed { background:#D9F7EC; color:#08755A; }
+        .ib-map-group-title { margin:11px 0 2px; color:#536071; font-size:.68rem; letter-spacing:.08em; text-transform:uppercase; }
+        .ib-map-person { display:grid; grid-template-columns:1fr auto; gap:2px 8px; padding:9px 0; border-top:1px solid rgba(11,31,58,.2); }
+        .ib-map-person strong { font-size:.84rem; }
+        .ib-map-person-name { color:#0B1F3A; font-size:.84rem; font-weight:900; text-decoration:none; border-bottom:1px dashed #2440FF; }
+        .ib-map-person-name:hover, .ib-map-person-name:focus { color:#2440FF; border-bottom-style:solid; }
+        .ib-inline-filter { display:flex; align-items:center; gap:7px; width:max-content; margin:0 0 10px; padding:5px 8px; border:1px solid #2440FF; border-radius:999px; background:#E7E9FF; color:#2440FF; font-size:.68rem; font-weight:900; text-decoration:none; }
+        .ib-inline-filter::before { content:""; display:block; width:10px; height:10px; border:2px solid #2440FF; border-radius:50%; background:#FFFBEA; }
+        .ib-inline-filter.active { background:#2440FF; color:#FFFBEA; }
+        .ib-inline-filter.active::before { background:#FFE500; border-color:#FFFBEA; box-shadow:inset 0 0 0 2px #2440FF; }
+        .ib-inline-filter:hover, .ib-inline-filter:focus { border-color:#0B1F3A; color:#0B1F3A; }
+        .ib-mobile-step { margin-top:10px; color:#536071; font-size:.68rem; font-weight:900; letter-spacing:.06em; text-transform:uppercase; }
+        .ib-mobile-action { display:inline-block; margin:8px 6px 0 0; padding:7px 10px; border:1px solid #2440FF; border-radius:999px; background:#FFFBEA; color:#2440FF; font-size:.72rem; font-weight:900; text-decoration:none; }
+        .ib-mobile-action.primary { background:#2440FF; color:#FFFBEA; }
+        .ib-mobile-action:hover, .ib-mobile-action:focus { border-color:#0B1F3A; color:#0B1F3A; }
+        .ib-mobile-action.primary:hover, .ib-mobile-action.primary:focus { background:#FFE500; }
+        .ib-mobile-route, .ib-mobile-complete, .ib-mobile-action-note { margin-top:6px; color:#425166; font-size:.76rem; line-height:1.35; }
+        .ib-mobile-outcomes { display:flex; flex-wrap:wrap; gap:3px; }
+        .ib-mobile-outcomes .ib-mobile-action { margin-right:2px; }
+        .ib-mobile-action.outcome-interested { border-color:#08755A; color:#08755A; }
+        .ib-mobile-action.outcome-followup { border-color:#A21760; color:#A21760; }
+        .ib-mobile-action.outcome-not-fit { border-color:#536071; color:#536071; }
+        .ib-phone-frame a { pointer-events:none !important; cursor:default !important; }
+        .ib-mobile-controls { max-width:930px; margin:0 auto 18px; padding:12px 14px; border:2px solid #0B1F3A; border-radius:16px; background:#F3EAD8; }
+        .ib-mobile-controls-label { margin:0 0 8px; color:#536071; font-size:.72rem; font-weight:900; letter-spacing:.08em; text-transform:uppercase; }
+        .ib-mobile-summary { background:#FFF7C2; border-color:#00C896; }
+        .ib-map-person span { color:#536071; font-size:.74rem; }
+        .ib-map-person .ib-status-chip { color:inherit; font-size:.64rem; margin-left:5px; vertical-align:middle; }
+        .ib-map-person b { grid-row:span 2; align-self:center; color:#2440FF; font-size:.88rem; }
+        .ib-map-person small { color:#425166; font-size:.72rem; }
+        .ib-map-pickers { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0 8px; }
+        .ib-map-detail { margin:12px 0 16px; padding:14px 16px; border:2px solid #2440FF; border-radius:16px; background:#E7E9FF; box-shadow:4px 4px 0 #0B1F3A; }
+        .ib-map-detail h4 { margin:0 0 4px; color:#0B1F3A; }
+        .ib-map-detail p { margin:4px 0; color:#0B1F3A; line-height:1.4; }
+        .ib-map-detail strong { color:#2440FF; }
         .ib-mini { border:2px solid #0B1F3A; border-radius:16px; padding:14px; background:#FFFBEA; margin:10px 0; }
         .ib-collage { position:relative; min-height:220px; display:grid; place-items:center; }
         .ib-phone-pair { position:relative; min-height:330px; display:flex; justify-content:center; align-items:center; gap:14px; padding:16px; background-image:radial-gradient(#0B1F3A 1px,transparent 1px); background-size:22px 22px; }
@@ -278,6 +492,11 @@ def _install_styles(*, dark_mode: bool = False) -> None:
         .ib-section-teal { background:#00CF9E; color:#0B1F3A; }
         .ib-section-teal h2, .ib-section-teal h3 { color:#0B1F3A; }
         .ib-divider { background:#0B1F3A; color:#FFFBEA; padding:18px 24px; border-radius:14px; margin:24px 0; font-weight:800; }
+        footer.ib-dark { padding:12px 16px !important; border-radius:14px !important; }
+        footer.ib-dark h3 { margin:0 0 4px !important; font-size:1rem !important; }
+        footer.ib-dark p { margin:2px 0 !important; font-size:.74rem !important; line-height:1.35 !important; }
+        footer.ib-dark small { font-size:.68rem !important; line-height:1.25 !important; }
+        footer.ib-dark hr { margin:6px 0 !important; }
         .ib-feature { min-height:155px; }
         .ib-proof { text-align:center; border-radius:18px; padding:18px; border:2px solid #0B1F3A; box-shadow:4px 4px 0 #0B1F3A; background:#FFFBEA; }
         .ib-proof strong { display:block; font-size:2rem; color:#0B1F3A; }
@@ -311,6 +530,8 @@ def _install_styles(*, dark_mode: bool = False) -> None:
           .ib-mock-phone { min-height:230px; padding:10px; }
           .ib-mock-phone:last-child { transform:translateY(22px) rotate(2deg); }
           .ib-mock-phone:first-child { transform:translateY(-10px) rotate(-2deg); }
+          .ib-day-map { grid-template-columns:1fr; }
+          .ib-map-canvas { min-height:300px; }
         }
         </style>
         """,
@@ -410,7 +631,7 @@ def _install_styles(*, dark_mode: bool = False) -> None:
 
 def _render_brand() -> None:
     st.markdown(
-        f'<div class="ib-brand">{_badge_svg(46)}<span>Inference Badge</span></div>',
+        f'<a target="_self" class="ib-brand ib-home-brand" href="?home=1">{_badge_svg(46)}<span>Inference Badge</span></a>',
         unsafe_allow_html=True,
     )
 
@@ -419,15 +640,15 @@ def _render_website() -> None:
     st.markdown(
         f"""
         <nav class="ib-site-nav" aria-label="Page sections">
-          <a href="#hero" class="ib-brand">{_badge_svg(42)}<span>Inference Badge</span></a>
+          <a target="_self" href="#hero" class="ib-brand">{_badge_svg(42)}<span>Inference Badge</span></a>
           <div class="ib-site-links">
-        <a href="#how-it-works">How it works</a>
-        <a href="#for-sales-teams">For sales teams</a>
-        <a href="#for-organisers">For organisers</a>
-        <a href="#privacy">Privacy</a>
-        <a href="#faq">FAQ</a>
+        <a target="_self" href="#how-it-works">How it works</a>
+        <a target="_self" href="#for-sales-teams">For sales teams</a>
+        <a target="_self" href="#for-organisers">For organisers</a>
+        <a target="_self" href="#privacy">Privacy</a>
+        <a target="_self" href="#faq">FAQ</a>
           </div>
-          <a class="ib-nav-demo" href="#try-demo">▶ Try the Demo</a>
+          <a target="_self" class="ib-nav-demo" href="#try-demo">▶ Try the Demo</a>
         </nav>
         <section id="hero" class="ib-hero">
           <div class="ib-collage">
@@ -474,7 +695,7 @@ def _render_website() -> None:
             unsafe_allow_html=True,
         )
         st.button(
-            "Start the 90-second business demo",
+            "Start the 90-second Business Login",
             type="primary",
             use_container_width=True,
             on_click=_go_to_demo,
@@ -497,17 +718,6 @@ def _render_website() -> None:
         on_click=_go_to_conference_day,
         use_container_width=True,
         help="Guided simulation for conference organisers, attendees, and exhibitor teams.",
-    )
-    account_login, account_signup = st.columns(2)
-    account_login.button(
-        "Log in · Coming soon",
-        on_click=_go_to_login,
-        use_container_width=True,
-    )
-    account_signup.button(
-        "Create account · Coming soon",
-        on_click=_go_to_signup,
-        use_container_width=True,
     )
     st.markdown(
         '<div class="ib-honesty">Built at the Patch the Conference Hackathon · FalkorDB · Bright Data · OpenAI</div>',
@@ -590,7 +800,7 @@ def _render_website() -> None:
         unsafe_allow_html=True,
         )
     st.markdown(
-        '<p><a href="#try-demo" style="color:#2440FF;font-weight:800;text-decoration:underline">👉 See it live in the demo</a></p>',
+        '<p class="ib-demo-link"><a target="_self" href="#try-demo" style="color:#2440FF;font-weight:800;text-decoration:underline">👉 See it live in the demo</a></p>',
         unsafe_allow_html=True,
     )
 
@@ -706,7 +916,7 @@ def _render_website() -> None:
         on_click=_go_to_setup,
         help="A simulated organizer walkthrough; no conference data is connected.",
     )
-    st.markdown('<p><a href="#get-the-app" style="color:#2440FF;font-weight:800;text-decoration:underline">👉 See the launch information</a></p>', unsafe_allow_html=True)
+    st.markdown('<p><a target="_self" href="#get-the-app" style="color:#2440FF;font-weight:800;text-decoration:underline">👉 See the launch information</a></p>', unsafe_allow_html=True)
 
     st.markdown('<section id="privacy" class="ib-section ib-section-cream"><div class="ib-privacy"><div class="ib-label" style="--accent:#FF8AD6">Privacy · product commitments, not implemented controls</div><h2>Clear choices, in plain words</h2></div></section>', unsafe_allow_html=True)
     privacy_promises = (
@@ -741,7 +951,7 @@ def _render_website() -> None:
     )
     for question, answer in faqs:
         st.markdown(f'<div class="ib-panel"><h3>{question}</h3><p>{answer}</p></div>', unsafe_allow_html=True)
-    st.markdown('<p>Still curious? Contact details are not configured yet. <a href="#hero" style="color:#2440FF;font-weight:800;text-decoration:underline">👉 Try the demo</a></p>', unsafe_allow_html=True)
+    st.markdown('<p>Still curious? Contact details are not configured yet. <a target="_self" href="#hero" style="color:#2440FF;font-weight:800;text-decoration:underline">👉 Try the demo</a></p>', unsafe_allow_html=True)
 
     st.markdown(
         """
@@ -751,7 +961,7 @@ def _render_website() -> None:
           <div class="ib-store">Apple App Store<br><small>COMING SOON · no download link</small></div>
           <div class="ib-store">Google Play<br><small>COMING SOON · no download link</small></div>
           <p>Join the early-access list for launch updates. Your email is stored in the configured backend only if you opt in.</p>
-          <p>Log in and account registration are coming soon.</p>
+          <p>Subscribe below for early-adopter launch updates.</p>
           <p>A hackathon build — honest, and improving fast.</p>
           <p>Built at the Patch the Conference Hackathon · FalkorDB · Bright Data · OpenAI</p>
         </section>
@@ -760,17 +970,23 @@ def _render_website() -> None:
     )
     with st.form("launch_list_form"):
         email = st.text_input("Email address", placeholder="you@example.com")
+        audience = st.radio(
+            "I’m interested as a",
+            ("Conference", "Business"),
+            horizontal=True,
+            help="Choose whether you represent a conference or a business field team.",
+        )
         consent = st.checkbox(
             "I agree to store this email for Inference Badge early-access updates.",
             key="early_access_consent",
         )
-        submitted = st.form_submit_button("Notify me", type="primary")
+        submitted = st.form_submit_button("Subscribe for early access", type="primary")
         if submitted:
             if not consent:
                 st.error("Please opt in before joining the early-access email list.")
             else:
                 try:
-                    add_early_access_signup(email)
+                    add_early_access_signup(email, audience)
                 except ValueError as exc:
                     st.error(str(exc))
                 except DatabaseError:
@@ -779,9 +995,9 @@ def _render_website() -> None:
                     )
                 else:
                     st.success("You’re on the early-access list. No email has been sent.")
-    st.button("▶ Try the business demo", type="primary", on_click=_go_to_demo, key="app_demo_cta")
+    st.button("▶ Try the Business Login", type="primary", on_click=_go_to_demo, key="app_demo_cta")
 
-    st.markdown('<footer class="ib-dark"><h3>Inference Badge</h3><p>Product: <a href="#how-it-works">How it works</a> · <a href="#story">Demo story</a> · <a href="#for-sales-teams">For sales teams</a> · <a href="#for-organisers">For organisers</a></p><p>Trust: <a href="#privacy">Privacy</a> · <a href="#faq">FAQ</a> · Contact details not configured</p><p>Get the app: <a href="#get-the-app">App Store · Coming soon</a> · <a href="#get-the-app">Google Play · Coming soon</a></p><hr><small>Built at the Patch the Conference Hackathon · FalkorDB · Bright Data · OpenAI</small><p><a href="#privacy">Privacy</a> · Terms · Contact</p></footer>', unsafe_allow_html=True)
+    st.markdown('<footer class="ib-dark"><h3>Inference Badge</h3><p>Product: <a target="_self" href="#how-it-works">How it works</a> · <a target="_self" href="#story">Demo story</a> · <a target="_self" href="#for-sales-teams">For sales teams</a> · <a target="_self" href="#for-organisers">For organisers</a></p><p>Trust: <a target="_self" href="#privacy">Privacy</a> · <a target="_self" href="#faq">FAQ</a> · Contact details not configured</p><p>Get the app: <a target="_self" href="#get-the-app">App Store · Coming soon</a> · <a target="_self" href="#get-the-app">Google Play · Coming soon</a></p><hr><small>Built at the Patch the Conference Hackathon · FalkorDB · Bright Data · OpenAI</small><p><a target="_self" href="#privacy">Privacy</a> · Terms · Contact</p></footer>', unsafe_allow_html=True)
 
 
 def _proof_row(state: dict[str, Any]) -> None:
@@ -917,7 +1133,6 @@ def _render_business_story() -> None:
     if "demo_state" not in st.session_state:
         st.session_state["demo_state"] = new_demo_state()
     state = st.session_state["demo_state"]
-    st.markdown('<div class="ib-label" style="--accent:#2440FF">Business demo · 90 seconds · Demo data</div><h1>One lead. One conversation. One team view.</h1><p>Follow the story below. The phone and booth respond together; all people and proximity are simulated.</p>', unsafe_allow_html=True)
     top = st.columns([3, 1, 1])
     top[0].progress(state["step"] / STEP_COUNT, text=f"Step {state['step']} of {STEP_COUNT} · {DEMO_STEPS[state['step'] - 1]}")
     top[1].button("Restart demo", on_click=_restart_demo, use_container_width=True)
@@ -961,12 +1176,127 @@ def _render_business_story() -> None:
         st.success("Demo complete · Leads found: 1 · Double talks stopped: 1 · Follow-up ready: 1")
         again, how = st.columns(2)
         again.button("Run it again", on_click=_restart_demo, use_container_width=True, type="primary")
-        how.button("Conference setup", on_click=_go_to_setup, use_container_width=True)
+        how.button("Conference Login", on_click=_go_to_setup, use_container_width=True)
+
+
+SETUP_ATTENDEES = [
+    {"Name": "Sarah Chen", "Email": "sarah@example.com", "Phone": "+1 415 555 0101", "LinkedIn": "linkedin.com/in/sarah-chen", "Role": "VP Engineering", "Company": "Acme Robotics", "Sharing": "Public", "App": "Installed"},
+    {"Name": "David Kim", "Email": "david@example.com", "Phone": "+1 415 555 0102", "LinkedIn": "linkedin.com/in/david-kim", "Role": "Head of Platform", "Company": "Northwind Health", "Sharing": "Private", "App": "Not installed"},
+    {"Name": "Lina Ortiz", "Email": "lina@example.com", "Phone": "+1 415 555 0103", "LinkedIn": "linkedin.com/in/lina-ortiz", "Role": "CTO", "Company": "Contoso Energy", "Sharing": "Public", "App": "Installed"},
+    {"Name": "Eli Brooks", "Email": "eli@example.com", "Phone": "+1 415 555 0104", "LinkedIn": "linkedin.com/in/eli-brooks", "Role": "VP Engineering", "Company": "Harbor Labs", "Sharing": "Public", "App": "Not installed"},
+    {"Name": "Noor Rahman", "Email": "noor@example.com", "Phone": "+1 415 555 0105", "LinkedIn": "linkedin.com/in/noor-rahman", "Role": "Head of Platform", "Company": "Pinecone Health", "Sharing": "No badge", "App": "Not installed"},
+]
+FULL_SETUP_ATTENDEES = [
+    {**SETUP_ATTENDEES[index % len(SETUP_ATTENDEES)], "Name": f"{SETUP_ATTENDEES[index % len(SETUP_ATTENDEES)]['Name']} · {index + 1:03d}", "Email": f"attendee{index + 1:03d}@devconf.example"}
+    for index in range(120)
+]
+
+
+def _render_setup_flow() -> None:
+    if not st.session_state.get("organizer_account_created"):
+        st.markdown('<div class="ib-label" style="--accent:#2440FF">PRIVATE HOST CONSOLE · DEMO</div><h1>Create your conference host account</h1>', unsafe_allow_html=True)
+        st.write("Create a private organizer workspace before importing attendee information. This prototype does not create a real account.")
+        with st.form("organizer_account_form"):
+            st.text_input("Conference name", value="DevConf 2026")
+            st.text_input("Conference website", placeholder="https://devconf.example")
+            st.text_input("Organizer email", placeholder="olivia@devconf.example")
+            st.text_input("Password", type="password", placeholder="Demo only · not stored")
+            st.checkbox("I understand this is a private demo workspace", value=True)
+            if st.form_submit_button("Create private host account", type="primary"):
+                st.session_state["organizer_account_created"] = True
+                st.success("Private host workspace created. Only the organizer console can access this setup data.")
+                st.rerun()
+        return
+    if "setup_step" not in st.session_state:
+        st.session_state["setup_step"] = 1
+    step = st.session_state["setup_step"]
+    st.markdown('<div class="ib-label" style="--accent:#2440FF">ORGANIZER CONTROL · OLIVIA</div><h1>Set up Inference Badge for DevConf 2026</h1>', unsafe_allow_html=True)
+    st.caption(f"Conference Login · Step {step} of 4 · Before the event")
+    st.progress(step / 4)
+    if step == 1:
+        st.markdown("### 1. Add the badge plugin")
+        st.write("Choose how DevConf is set up, then add the badge option to the conference app.")
+        st.radio("Conference app setup", ("Event app with an attendee directory", "Registration website with an event app", "Registration website only"), key="setup_app_type")
+        st.info("Recommended plugin: attendee badge + opt-in prompt. It works with the sample event app setup above.")
+        if st.button("Add Inference Badge plugin", type="primary", use_container_width=True):
+            st.session_state["setup_step"] = 2
+            st.success("Plugin added. Registration import is now available.")
+            st.rerun()
+    elif step == 2:
+        st.markdown("### 2. Import registrations and activate attendees")
+        st.write("Load the mock signup list, review sharing choices, and email attendees who still need the app.")
+        if not st.session_state.get("attendees_imported"):
+            st.metric("Sample registrations ready", 120)
+            if st.button("Import mock attendee list", type="primary", use_container_width=True):
+                st.session_state["attendees_imported"] = True
+                st.success("120 registrations imported. Five story attendees are shown below.")
+                st.rerun()
+        else:
+            st.caption("120 mock users · one imported roster with privacy, app status, and row-level nudges")
+            search_col, sharing_col, app_col = st.columns([2, 1, 1])
+            search = search_col.text_input("Search attendees", placeholder="Name, email, company, or role", key="setup_attendee_search")
+            sharing_filter = sharing_col.selectbox("Sharing", ("All", "Public", "Private", "No badge"), key="setup_sharing_filter")
+            app_filter = app_col.selectbox("App", ("All", "Installed", "Not installed"), key="setup_app_filter")
+            query = search.strip().casefold()
+            filtered_attendees = [row for row in FULL_SETUP_ATTENDEES if (not query or any(query in str(row[field]).casefold() for field in ("Name", "Email", "Company", "Role"))) and (sharing_filter == "All" or row["Sharing"] == sharing_filter) and (app_filter == "All" or row["App"] == app_filter)]
+            st.caption(f"Showing {len(filtered_attendees)} of 120 imported attendees")
+            table_header = st.columns([1.4, 2.4, 1.4, 1.2, 1.4, 1.5, 1, 1, .8])
+            for column, label in zip(table_header, ("Name", "Email", "Phone", "LinkedIn", "Role", "Company", "Sharing", "App", "Nudge")):
+                column.markdown(f"**{label}**")
+            with st.container(height=420):
+                for attendee in filtered_attendees:
+                    row_cols = st.columns([1.4, 2.4, 1.4, 1.2, 1.4, 1.5, 1, 1, .8])
+                    for column, field in zip(row_cols[:8], ("Name", "Email", "Phone", "LinkedIn", "Role", "Company", "Sharing", "App")):
+                        column.write(attendee[field])
+                    if attendee["App"] == "Not installed" and row_cols[8].button("Send", key=f"nudge_{attendee['Email']}"):
+                        st.success(f"Demo email sent to {attendee['Email']}. No external email provider is connected.")
+            public_count = sum(row["Sharing"] == "Public" for row in SETUP_ATTENDEES)
+            private_count = sum(row["Sharing"] == "Private" for row in SETUP_ATTENDEES)
+            need_app = sum(row["App"] == "Not installed" for row in FULL_SETUP_ATTENDEES)
+            st.info(f"{public_count} public · {private_count} private · 1 no badge in the story sample · {need_app} of 120 imported attendees need the app")
+            if st.button("Email app download nudges", type="primary", use_container_width=True):
+                st.session_state["nudges_sent"] = True
+                st.success(f"Demo email sent to {need_app} attendees without the app. No external email provider is connected.")
+            if st.button("Continue to managing Business Booth signups", use_container_width=True):
+                st.session_state["setup_step"] = 3
+                st.rerun()
+    elif step == 3:
+        st.markdown("### 3. Business Booth signups")
+        st.write("Create confidential booth access invitations so each business can create an account or add this conference.")
+        booths = [
+            {"Business": "Nimbus", "Employees": "Alice Chen · Bob Singh", "Emails": "alice@nimbus.example · bob@nimbus.example", "Passcode": "DEVCONF-NIMBUS-7K4Q"},
+            {"Business": "Acme Robotics", "Employees": "Olivia Park · Sam Lee", "Emails": "olivia@acme.example · sam@acme.example", "Passcode": "DEVCONF-ACME-2M8P"},
+            {"Business": "Northwind Health", "Employees": "Maya Patel", "Emails": "maya@northwind.example", "Passcode": "DEVCONF-NORTH-9R2L"},
+            {"Business": "Harbor Labs", "Employees": "Eli Brooks · Grace Kim", "Emails": "eli@harbor.example · grace@harbor.example", "Passcode": "DEVCONF-HARBOR-5T1C"},
+        ]
+        st.dataframe(booths, use_container_width=True, hide_index=True)
+        st.warning("Passcodes are demo values. In production, each invitation would be sent privately to the listed business contacts and never shown in a shared screen.")
+        if st.button("Email confidential booth invitations", type="primary", use_container_width=True):
+            st.session_state["booth_invites_sent"] = True
+            st.success("Demo invitations prepared for all four business booths. No external email was sent.")
+        if st.button("Continue to field team setup", use_container_width=True):
+            st.session_state["setup_step"] = 4
+            st.rerun()
+    else:
+        st.markdown("### 4. Ready for the field team")
+        st.write("The organizer view is complete. The field team can now use the badge signals during the conference.")
+        st.success("DevConf setup complete · registrations imported · privacy choices preserved · app nudges prepared")
+        st.markdown('<div class="ib-panel"><strong>Next step</strong><p>Open the Business Login to see Alice and Bob prepare leads, coordinate conversations, and review results.</p></div>', unsafe_allow_html=True)
+        if st.button("Log out", use_container_width=True):
+            for key in ("organizer_account_created", "setup_step", "attendees_imported", "nudges_sent", "booth_invites_sent"):
+                st.session_state.pop(key, None)
+            st.session_state["page"] = "Marketing"
+            st.rerun()
 
 
 def _render_conference_setup() -> None:
+    _render_setup_flow()
+    return
+
+
+def _render_legacy_conference_setup() -> None:
     st.markdown(
-        '<div class="ib-label" style="--accent:#00C896">Conference setup demo · organizer view</div>'
+        '<div class="ib-label" style="--accent:#00C896">Conference Login · organizer view</div>'
         '<h1>Add the badge to your conference</h1>'
         '<p>A short preview of how an organizer could introduce the plugin. This is a walkthrough only; it does not connect to an event system or change settings.</p>',
         unsafe_allow_html=True,
@@ -976,17 +1306,18 @@ def _render_conference_setup() -> None:
         ("02", "globe", "Connect the attendee list", "Use conference sign-ups as the team’s lead pool."),
         ("03", "lock", "Let attendees choose", "Attendees control sharing on their own phone."),
     )
-    for number, icon_name, title, body in setup_steps:
-        st.markdown(
-            f'<div class="ib-setup-row">{_icon(icon_name)}'
-            f'<div><div class="ib-label" style="color:#008B70">STEP {number}</div>'
-            f'<h3>{title}</h3><p>{body}</p></div></div>',
+    setup_cols = st.columns(3)
+    for col, (number, icon_name, title, body) in zip(setup_cols, setup_steps):
+        col.markdown(
+            f'<div class="ib-setup-card">{_icon(icon_name)}'
+            f'<div class="ib-label" style="color:#008B70">STEP {number}</div>'
+            f'<h3>{title}</h3><p>{body}</p></div>',
             unsafe_allow_html=True,
         )
     st.markdown(
         '<div class="ib-panel"><div class="ib-label" style="--accent:#00C896">INTERACTIVE SIMULATION</div>'
-        '<h2>Set up a sample attendee sign-up</h2>'
-        '<p>Choose what an organizer offers, then experience the attendee’s opt-in choice. Nothing is saved or connected.</p></div>',
+        '<h2>See the attendee experience</h2>'
+        '<p>First choose what the organizer offers. Then switch to the attendee phone preview and make one clear privacy choice.</p></div>',
         unsafe_allow_html=True,
     )
     offer_badge = st.checkbox(
@@ -1012,19 +1343,24 @@ def _render_conference_setup() -> None:
     elif st.session_state.get("conference_setup_previewed"):
         st.markdown(
             '<div class="ib-phone"><div class="ib-phone-notch"></div>'
-            '<div class="ib-label">SAMPLE CONFERENCE SIGN-UP</div>'
-            '<h3>Would you like to use an event badge?</h3>'
-            '<p>Opt in to share your badge with participating sales teams during this event. You can keep your details private and change your choice later.</p>'
+            '<div class="ib-label">STEP 2 · ATTENDEE PHONE</div>'
+            '<h3>Choose how your badge works</h3>'
+            '<p>This choice controls whether participating sales teams can see you as a lead during this event. You can change it later.</p>'
             '</div>',
             unsafe_allow_html=True,
         )
-        st.checkbox(
-            "I choose to share my badge with participating sales teams",
-            value=True,
-            key="conference_setup_sharing",
+        st.radio(
+            "Your badge choice",
+            ("Share my badge", "Keep my badge private"),
+            index=0,
+            key="conference_setup_choice",
+            captions=(
+                "Your name and selected sign-up details can enter the team lead pool.",
+                "You stay out of the team lead pool; no name is shown.",
+            ),
         )
         st.button(
-            "Complete sample sign-up",
+            "Continue with this choice",
             on_click=_complete_setup_simulation,
             use_container_width=True,
         )
@@ -1049,7 +1385,7 @@ def _render_conference_setup() -> None:
         unsafe_allow_html=True,
     )
     st.button(
-        "See the business demo",
+        "See the Business Login",
         type="primary",
         on_click=_go_to_demo,
         use_container_width=True,
@@ -1057,15 +1393,262 @@ def _render_conference_setup() -> None:
 
 
 def _render_demo() -> None:
-    story_tab, phone_tab, booth_tab = st.tabs(
-        ("90-second story", "Phone app", "Booth dashboard")
-    )
-    with story_tab:
-        _render_business_story()
-    with phone_tab:
-        _render_phone_prototype()
-    with booth_tab:
-        _render_booth_dashboard()
+    _render_business_login_flow()
+
+
+BUSINESS_ATTENDEES = [
+    ("Sarah Chen", "VP Engineering", "Acme Robotics", 92, "Olivia", "Interested"),
+    ("Tom Alvarez", "Head of Platform", "Northwind Health", 86, "Maya", "New"),
+    ("Lina Ortiz", "CTO", "Contoso Energy", 81, "Olivia", "Follow up"),
+    ("Eli Brooks", "VP Engineering", "Harbor Labs", 79, "Sam", "New"),
+    ("Noor Rahman", "Head of Platform", "Pinecone Health", 76, "Olivia", "Interested"),
+    ("Mina Park", "Designer", "Studio North", 62, "Sam", "Not a fit"),
+    ("Owen Reed", "Operations lead", "Fieldworks", 58, "Maya", "New"),
+    ("Aria Singh", "Researcher", "Brightpath", 71, "Olivia", "New"),
+    ("Grace Lee", "Staff Engineer", "Waypoint", 68, "Maya", "New"),
+    ("Diego Ramos", "Product VP", "Summit Works", 73, "Olivia", "Interested"),
+]
+BUSINESS_TEAM = ("Alice", "Bob", "Olivia", "Maya")
+BUSINESS_ASSIGNMENT_OPTIONS = ("N/A · not a lead", *BUSINESS_TEAM)
+BUSINESS_ROSTER = [
+    {
+        "Attendee": row["Name"],
+        "Email": row["Email"],
+        "Role": row["Role"],
+        "Company": row["Company"],
+        "LinkedIn": row["LinkedIn"],
+        "Public profile": "Available" if row["Sharing"] == "Public" else "Private / not enriched",
+        "Confidence": f"{max(51, 94 - (index % 18) * 2)}%" if row["Sharing"] == "Public" else "—",
+        "Assigned": BUSINESS_TEAM[index % len(BUSINESS_TEAM)],
+        "Status": ("Interested" if index % 7 == 0 else "Follow up" if index % 5 == 0 else "New") if row["Sharing"] == "Public" else row["Sharing"],
+    }
+    for index, row in enumerate(FULL_SETUP_ATTENDEES)
+]
+DAY_MAP_ATTENDEES = (
+    {"Name": "Sarah Chen", "Role": "VP Engineering", "Company": "Acme Robotics", "Confidence": "92%", "Status": "In conversation with Alex · do not disturb", "Direction": "↖ 3 m northwest via the main aisle", "Action": "Do not approach; Alex already has the conversation."},
+    {"Name": "Lina Ortiz", "Role": "CTO", "Company": "Contoso Energy", "Confidence": "81%", "Status": "Open · Follow up", "Direction": "↗ 8 m northeast past Registration", "Action": "Approach next and ask about her platform priorities."},
+    {"Name": "Noor Rahman", "Role": "Head of Platform", "Company": "Pinecone Health", "Confidence": "76%", "Status": "Open · Interested", "Direction": "→ 12 m east along the Hall A aisle", "Action": "Open conversation when the route is clear."},
+    {"Name": "Diego Ramos", "Role": "Product VP", "Company": "Summit Works", "Confidence": "73%", "Status": "Open · Interested", "Direction": "↘ 18 m southeast toward the Food Court", "Action": "Approach after the nearby open lead."},
+    {"Name": "Tom Alvarez", "Role": "Head of Platform", "Company": "Northwind Health", "Confidence": "86%", "Status": "Completed", "Direction": "↙ 24 m southwest near Hall B", "Action": "No action needed; Maya logged the conversation."},
+    {"Name": "Priya Shah", "Role": "VP Product", "Company": "Vertex AI", "Confidence": "88%", "Status": "Completed", "Direction": "↙ 20 m southwest near Hall B", "Action": "No action needed; Olivia logged the conversation."},
+    {"Name": "Marcus Lee", "Role": "CTO", "Company": "Northstar Systems", "Confidence": "84%", "Status": "Completed", "Direction": "← 16 m west by the main aisle", "Action": "No action needed; Olivia logged the conversation."},
+    {"Name": "Aria Singh", "Role": "Researcher", "Company": "Private attendee", "Confidence": "—", "Status": "Open · private", "Direction": "← 31 m west toward the North Entry", "Action": "Details stay hidden until Aria chooses to share."},
+)
+
+
+def _render_business_login_flow() -> bool:
+    if "business_step" not in st.session_state:
+        st.session_state["business_step"] = 1
+    step = st.session_state["business_step"]
+    if st.session_state.pop("business_logged_out", False):
+        st.success("You are logged out of the private business workspace.")
+    progress_step = min(step, 3)
+    st.markdown('<div class="ib-label" style="--accent:#FF4A00">PRIVATE BUSINESS CONSOLE · DEMO</div><h1>Prepare your field team for DevConf 2026</h1>', unsafe_allow_html=True)
+    st.caption(f"Business Login · Step {progress_step} of 3")
+    st.progress(progress_step / 3)
+    if step == 1:
+        st.markdown("### 1. Create account or log in")
+        st.write("Use the conference passcode to access the attendee list shared with your business team.")
+        with st.form("business_login_form"):
+            st.selectbox("Conference", ("DevConf 2026", "GitHub Universe · Demo", "AI Infra Summit · Demo"))
+            st.text_input("Business name", value="Nimbus")
+            st.caption("Add the employees who will attend. At least one employee name and email are required.")
+            employee_rows = []
+            for index in range(1, 4):
+                employee_name = st.text_input(f"Employee {index} name", value="Alice" if index == 1 else "", key=f"business_employee_name_{index}")
+                employee_email = st.text_input(f"Employee {index} email", value="alice@nimbus.example" if index == 1 else "", placeholder="name@business.example", key=f"business_employee_email_{index}")
+                if employee_name.strip() or employee_email.strip():
+                    employee_rows.append((employee_name.strip(), employee_email.strip()))
+            st.text_input("Conference access passcode", placeholder="Provided by Olivia")
+            if st.form_submit_button("Open private business workspace", type="primary"):
+                valid_employee = any(name and email for name, email in employee_rows)
+                if not valid_employee:
+                    st.error("Add at least one employee name and email before creating the workspace.")
+                else:
+                    st.session_state["business_step"] = 2
+                    st.session_state["business_employees"] = employee_rows
+                    st.rerun()
+    elif step == 2:
+        st.markdown("### 2. Enrich attendees and assign the team")
+        st.write("Bright Data runs a demo LinkedIn/public-profile lookup. FalkorDB stores the lead match and assignment context.")
+        st.caption("120 attendees from Conference Login · Bright Data public-profile signals · FalkorDB lead confidence and assignments")
+        if "business_assignments" not in st.session_state:
+            st.session_state["business_assignments"] = {row["Email"]: row["Assigned"] for row in BUSINESS_ROSTER}
+        search_col, status_col, owner_col = st.columns([2, 1, 1])
+        roster_search = search_col.text_input("Search attendees", placeholder="Name, email, company, or role", key="business_roster_search")
+        roster_status = status_col.selectbox("Lead status", ("All", "New", "Interested", "Follow up", "Private", "No badge", "Not a fit"), key="business_roster_status")
+        roster_owner = owner_col.selectbox("Assigned employee", ("All", BUSINESS_ASSIGNMENT_OPTIONS[0], *BUSINESS_TEAM), key="business_roster_owner")
+        bulk_col, bulk_button_col = st.columns([2, 1])
+        bulk_owner = bulk_col.selectbox("Bulk assign visible attendees to", BUSINESS_ASSIGNMENT_OPTIONS, key="business_bulk_owner")
+        if "business_selected" not in st.session_state:
+            st.session_state["business_selected"] = set()
+        if bulk_button_col.button("Bulk update assignments", use_container_width=True):
+            query = roster_search.strip().casefold()
+            for row in BUSINESS_ROSTER:
+                matches = (not query or any(query in str(row[field]).casefold() for field in ("Attendee", "Email", "Company", "Role"))) and (roster_status == "All" or row["Status"] == roster_status) and (roster_owner == "All" or st.session_state["business_assignments"][row["Email"]] == roster_owner)
+                if matches and (not st.session_state["business_selected"] or row["Email"] in st.session_state["business_selected"]):
+                    st.session_state["business_assignments"][row["Email"]] = bulk_owner
+            st.success(f"Selected attendees assigned to {bulk_owner}.")
+        query = roster_search.strip().casefold()
+        visible_roster = [row for row in BUSINESS_ROSTER if (not query or any(query in str(row[field]).casefold() for field in ("Attendee", "Email", "Company", "Role"))) and (roster_status == "All" or row["Status"] == roster_status) and (roster_owner == "All" or st.session_state["business_assignments"][row["Email"]] == roster_owner)]
+        st.caption(f"Showing {len(visible_roster)} of 120 attendees")
+        with st.container(height=420):
+            header = st.columns([.45, 1.7, 2.2, 1.5, 1, 1.2, 1.2])
+            for column, label in zip(header, ("Pick", "Attendee", "Company", "Public signal", "Confidence", "Status", "Assigned employee")):
+                column.markdown(f"**{label}**")
+            for row in visible_roster:
+                cells = st.columns([.45, 1.7, 2.2, 1.5, 1, 1.2, 1.2])
+                picked = cells[0].checkbox("Select", key=f"business_pick_{row['Email']}", label_visibility="collapsed")
+                if picked:
+                    st.session_state["business_selected"].add(row["Email"])
+                else:
+                    st.session_state["business_selected"].discard(row["Email"])
+                cells[1].write(row["Attendee"])
+                cells[2].write(row["Company"])
+                cells[3].write(row["Public profile"])
+                cells[4].write(row["Confidence"])
+                cells[5].write(row["Status"])
+                current_owner = st.session_state["business_assignments"][row["Email"]]
+                selected_owner = cells[6].selectbox("Owner", BUSINESS_ASSIGNMENT_OPTIONS, index=BUSINESS_ASSIGNMENT_OPTIONS.index(current_owner) if current_owner in BUSINESS_ASSIGNMENT_OPTIONS else 0, label_visibility="collapsed", key=f"business_owner_{row['Email']}")
+                st.session_state["business_assignments"][row["Email"]] = selected_owner
+        st.caption("Demo enrichment only · no live LinkedIn scrape is performed in this guided step.")
+        if st.button("Confirm assignments", type="primary", use_container_width=True):
+            st.session_state["business_step"] = 3
+            st.rerun()
+    else:
+        st.markdown("### 3. Day-of-conference view")
+        st.write("Olivia is assigned to 10 attendees. FalkorDB turns the shared team graph into a phone-friendly proximity map with directions and lead confidence.")
+        st.caption("3a · Open lead queue  →  3b · Lead details  →  3c · Submit outcome")
+        show_open_only = st.query_params.get("open_only") == "1"
+        phone_frame_class = "ib-phone-frame duo open open-only" if show_open_only else "ib-phone-frame duo open"
+        picker_attendees = tuple(person for person in DAY_MAP_ATTENDEES if not show_open_only or person["Status"].startswith("Open"))
+        selected_from_url = st.query_params.get("day_map_selected")
+        if selected_from_url in {person["Name"] for person in DAY_MAP_ATTENDEES}:
+            st.session_state["day_map_selected"] = selected_from_url
+        elif st.session_state.get("day_map_selected") == "Sarah Chen":
+            st.session_state["day_map_selected"] = "Lina Ortiz"
+        open_only_suffix = "&open_only=1" if show_open_only else ""
+        simulation_value = st.query_params.get("ib_simulation")
+        simulation_suffix = f"&ib_simulation={quote_plus(simulation_value)}" if simulation_value else ""
+        business_page_suffix = f"&page={quote_plus('Business Login')}"
+        lead_links = {
+            person["Name"]: f"?day_map_selected={quote_plus(person['Name'])}{open_only_suffix if person['Status'].startswith('Open') else '&open_only=0' if show_open_only else ''}{simulation_suffix}{business_page_suffix}"
+            for person in DAY_MAP_ATTENDEES
+        }
+        filter_href = ("?open_only=0" if show_open_only else "?open_only=1") + simulation_suffix + business_page_suffix
+        filter_class = "ib-inline-filter active" if show_open_only else "ib-inline-filter"
+        filter_label = "Showing open leads only" if show_open_only else "Open leads only"
+        inline_filter = f'<a target="_self" class="{filter_class}" href="{filter_href}" role="button">{filter_label}</a>'
+        selected_name = st.session_state.get("day_map_selected", "Lina Ortiz")
+        if show_open_only and not any(person["Name"] == selected_name for person in picker_attendees):
+            selected_name = picker_attendees[0]["Name"]
+            st.session_state["day_map_selected"] = selected_name
+        selected_attendee = next((person for person in DAY_MAP_ATTENDEES if person["Name"] == selected_name), DAY_MAP_ATTENDEES[0])
+        selected_is_open = selected_attendee["Status"].startswith("Open") and "private" not in selected_attendee["Status"].casefold()
+        mobile_stage = st.query_params.get("mobile_stage", "ready")
+        if mobile_stage in {"conversation", "complete"}:
+            mobile_stage = "summary"
+        if mobile_stage not in {"ready", "route", "summary"}:
+            mobile_stage = "ready"
+        mobile_outcome = st.query_params.get("mobile_outcome", "")
+        if not selected_is_open:
+            mobile_stage = "ready"
+        open_leads = [person for person in DAY_MAP_ATTENDEES if person["Status"].startswith("Open") and "private" not in person["Status"].casefold()]
+        current_open_index = next((index for index, person in enumerate(open_leads) if person["Name"] == selected_name), -1)
+        next_lead = open_leads[(current_open_index + 1) % len(open_leads)] if open_leads else selected_attendee
+        def mobile_action_href(stage: str, outcome: str = "", attendee_name: str | None = None) -> str:
+            target_name = attendee_name or selected_name
+            target_person = next((person for person in DAY_MAP_ATTENDEES if person["Name"] == target_name), selected_attendee)
+            open_value = "&open_only=1" if show_open_only and target_person["Status"].startswith("Open") else "&open_only=0" if show_open_only else ""
+            outcome_value = f"&mobile_outcome={quote_plus(outcome)}" if outcome else ""
+            return f"?day_map_selected={quote_plus(target_name)}&mobile_stage={stage}{outcome_value}{open_value}{simulation_suffix}{business_page_suffix}"
+        if not selected_is_open:
+            selected_actions_html = '<div class="ib-mobile-action-note">Do not approach · this attendee is already covered or private.</div>'
+        elif mobile_stage == "ready":
+            selected_actions_html = f'<div class="ib-mobile-step">3a · Open lead queue</div><a target="_self" class="ib-mobile-action primary" href="{mobile_action_href("route")}">Go to lead · {selected_attendee["Direction"].split(" ")[1] if len(selected_attendee["Direction"].split()) > 1 else "nearby"}</a>'
+        elif mobile_stage == "route":
+            selected_actions_html = f'<div class="ib-mobile-step">3b · Lead details and conversation</div><div class="ib-mobile-route">{selected_attendee["Direction"]}</div><div class="ib-mobile-outcomes"><a target="_self" class="ib-mobile-action outcome-interested" href="{mobile_action_href("summary", "Interested")}">Interested</a><a target="_self" class="ib-mobile-action outcome-followup" href="{mobile_action_href("summary", "Follow up")}">Follow up</a><a target="_self" class="ib-mobile-action outcome-not-fit" href="{mobile_action_href("summary", "Not a fit")}">Not a fit</a></div>'
+        else:
+            selected_actions_html = f'<div class="ib-mobile-step">3c · Confirm conversation outcome</div><div class="ib-mobile-complete">Added <strong>{mobile_outcome or "Interested"}</strong> for {selected_attendee["Name"]} to the team view.</div><a target="_self" class="ib-mobile-action primary" href="{mobile_action_href("ready", attendee_name=next_lead["Name"])}">Submit</a>'
+        display_status = f"Completed · {mobile_outcome}" if mobile_stage == "summary" and mobile_outcome else selected_attendee["Status"]
+        detail_class = "ib-map-detail ib-phone-lead-card ib-mobile-summary" if mobile_stage == "summary" else "ib-map-detail ib-phone-lead-card"
+        logout_href = f"?business_logout=1{simulation_suffix}{business_page_suffix}"
+        st.markdown(
+            f'<div class="{phone_frame_class}" aria-label="Olivia mobile app preview"><div class="ib-phone-notch"></div><div class="ib-phone-status"><span>9:41</span><span>▮▮▮ 100%</span></div>'
+            f'<div class="ib-phone-app-bar"><div class="ib-phone-app-brand">{_badge_svg(22)}<strong>Inference Badge</strong></div><span class="ib-phone-more">•••</span></div>'
+            '<div class="ib-day-map">'
+            '<div class="ib-map-card">'
+            '<div class="ib-map-header"><strong>Olivia’s live floor map</strong><span>FalkorDB proximity · refreshed now</span></div>'
+            '<div class="ib-map-canvas">'
+            '<div class="ib-map-grid"></div>'
+            '<div class="ib-map-block" style="left:5%;top:8%;width:20%;height:15%"></div><div class="ib-map-block beige" style="left:72%;top:7%;width:21%;height:13%"></div><div class="ib-map-block" style="left:67%;top:69%;width:25%;height:17%"></div><div class="ib-map-block beige" style="left:6%;top:68%;width:19%;height:18%"></div>'
+            '<div class="ib-map-road main"></div><div class="ib-map-road cross"></div><div class="ib-map-road vertical"></div>'
+            '<span class="ib-map-label" style="left:8%;top:27%">NORTH ENTRY</span><span class="ib-map-label" style="left:69%;top:24%">REGISTRATION</span><span class="ib-map-label" style="left:72%;top:89%">FOOD COURT</span><span class="ib-map-label" style="left:7%;top:90%">HALL B</span>'
+            '<div class="ib-map-controls" aria-label="Map controls"><span>+</span><span>−</span><span>⌖</span></div><div class="ib-map-scale"><span>0</span><i></i><span>10 m</span></div>'
+            '<svg class="ib-map-routes" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="Directions from Olivia to nearby attendees">'
+            '<path class="ib-map-route busy" d="M50 54 L46 49"/><path class="ib-map-route open" d="M50 54 L57 47"/><path class="ib-map-route open" d="M50 54 L64 54"/><path class="ib-map-route open" d="M50 54 L65 69"/><path class="ib-map-route completed" d="M50 54 L30 74"/><path class="ib-map-route completed" d="M50 54 L37 78"/><path class="ib-map-route completed" d="M50 54 L22 58"/><path class="ib-map-route open" d="M50 54 L13 54"/>'
+            '</svg>'
+            '<div class="ib-map-origin" style="left:50%;top:54%"><span>O</span><strong>Olivia</strong><small>you · booth</small></div>'
+            '<div class="ib-map-marker busy" style="left:46%;top:49%"><span>S</span><div>Sarah · 3 m ↖</div><small>92%</small></div>'
+            '<div class="ib-map-marker open" style="left:57%;top:47%"><span>L</span><div>Lina · 8 m ↗</div><small>81%</small></div>'
+            '<div class="ib-map-marker open" style="left:64%;top:54%"><span>N</span><div>Noor · 12 m →</div><small>76%</small></div>'
+            '<div class="ib-map-marker open" style="left:65%;top:69%"><span>D</span><div>Diego · 18 m ↘</div><small>73%</small></div>'
+            '<div class="ib-map-marker completed" style="left:30%;top:74%"><span>T</span><div>Tom · 24 m ↙</div><small>86%</small></div><div class="ib-map-marker completed" style="left:37%;top:78%"><span>P</span><div>Priya · 20 m ↙</div><small>88%</small></div><div class="ib-map-marker completed" style="left:22%;top:58%"><span>M</span><div>Marcus · 16 m ←</div><small>84%</small></div>'
+            '<div class="ib-map-marker open private" style="left:13%;top:54%"><span>A</span><div>Aria · 31 m ←</div><small>private</small></div>'
+            '</div>'
+            '<div class="ib-map-legend"><span>🟡 Olivia</span><span>🔵 open</span><span>🌸 do not disturb</span><span>🟢 completed</span><span>↗ direction from booth</span><span>% = lead confidence</span></div>'
+            '</div>'
+            f'<div class="ib-map-list"><h4>Assigned attendees</h4>{inline_filter}<p>Grouped by the action Olivia should take next. Tap a name below for details and directions.</p>'
+            '<div class="ib-map-statuses"><span class="ib-status-chip open">OPEN · 4</span><span class="ib-status-chip busy">DO NOT DISTURB · 1</span><span class="ib-status-chip completed">COMPLETED · 3</span></div>'
+            '<div class="ib-map-group group-open"><h5 class="ib-map-group-title">Open</h5>'
+            f'<div class="ib-map-person"><div><a target="_self" class="ib-map-person-name" role="button" href="{lead_links["Lina Ortiz"]}">Lina Ortiz</a><span class="ib-status-chip open">Open</span></div><b>81%</b><span>↗ 8 m · Follow up</span><small>CTO · Contoso Energy</small></div>'
+            f'<div class="ib-map-person"><div><a target="_self" class="ib-map-person-name" role="button" href="{lead_links["Noor Rahman"]}">Noor Rahman</a><span class="ib-status-chip open">Open</span></div><b>76%</b><span>→ 12 m · Interested</span><small>Head of Platform · Pinecone Health</small></div>'
+            f'<div class="ib-map-person"><div><a target="_self" class="ib-map-person-name" role="button" href="{lead_links["Diego Ramos"]}">Diego Ramos</a><span class="ib-status-chip open">Open</span></div><b>73%</b><span>↘ 18 m · Interested</span><small>Product VP · Summit Works</small></div>'
+            f'<div class="ib-map-person"><div><a target="_self" class="ib-map-person-name" role="button" href="{lead_links["Aria Singh"]}">Aria Singh</a><span class="ib-status-chip open">Open</span></div><b>—</b><span>← 31 m · Private</span><small>Details stay hidden</small></div></div>'
+            '<div class="ib-map-group group-busy"><h5 class="ib-map-group-title">In conversation with a different employee · do not disturb</h5>'
+            f'<div class="ib-map-person"><div><a target="_self" class="ib-map-person-name" role="button" href="{lead_links["Sarah Chen"]}">Sarah Chen</a><span class="ib-status-chip busy">Do not disturb</span></div><b>92%</b><span>↖ 3 m · With Alex</span><small>Already approved by Alex</small></div>'
+            '</div><div class="ib-map-group group-completed"><h5 class="ib-map-group-title">Completed</h5>'
+            f'<div class="ib-map-person"><div><a target="_self" class="ib-map-person-name" role="button" href="{lead_links["Tom Alvarez"]}">Tom Alvarez</a><span class="ib-status-chip completed">Completed · Maya</span></div><b>86%</b><span>↙ 24 m · Covered</span><small>Conversation logged by Maya</small></div>'
+            f'<div class="ib-map-person"><div><a target="_self" class="ib-map-person-name" role="button" href="{lead_links["Priya Shah"]}">Priya Shah</a><span class="ib-status-chip completed">Completed · Olivia</span></div><b>88%</b><span>↙ 20 m · Covered</span><small>Conversation logged by Olivia</small></div>'
+            f'<div class="ib-map-person"><div><a target="_self" class="ib-map-person-name" role="button" href="{lead_links["Marcus Lee"]}">Marcus Lee</a><span class="ib-status-chip completed">Completed · Olivia</span></div><b>84%</b><span>← 16 m · Covered</span><small>Conversation logged by Olivia</small></div>'
+            '</div></div></div>'
+            f'<div class="{detail_class}"><h4>{selected_attendee["Name"]}</h4><p><strong>{selected_attendee["Role"]}</strong> · {selected_attendee["Company"]}</p><p><strong>{display_status}</strong> · lead confidence {selected_attendee["Confidence"]}</p><p><strong>Directions:</strong> {selected_attendee["Direction"]}</p><p><strong>Next action:</strong> {selected_attendee["Action"]}</p>{selected_actions_html}</div>'
+            f'<div class="ib-phone-nav"><span class="active"><b>⌂</b><small>Map</small></span><span><b>◎</b><small>Leads</small></span><span><b>♧</b><small>Team</small></span><a target="_self" href="{logout_href}" role="button"><b>↪</b><small>Log out</small></a></div></div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown('<div class="ib-mobile-controls"><div class="ib-mobile-controls-label">Controls outside the phone preview</div></div>', unsafe_allow_html=True)
+        if mobile_stage == "ready" and selected_is_open:
+            if st.button("Continue to lead details", type="primary", use_container_width=True, key="mobile_continue_to_details"):
+                st.query_params["day_map_selected"] = selected_name
+                st.query_params["mobile_stage"] = "route"
+                st.rerun()
+        elif mobile_stage == "route" and selected_is_open:
+            outcome_cols = st.columns(3)
+            for column, outcome, key, button_type in (
+                (outcome_cols[0], "Interested", "mobile_outcome_interested", "primary"),
+                (outcome_cols[1], "Follow up", "mobile_outcome_followup", "secondary"),
+                (outcome_cols[2], "Not a fit", "mobile_outcome_not_fit", "secondary"),
+            ):
+                if column.button(outcome, type=button_type, use_container_width=True, key=key):
+                    st.query_params["day_map_selected"] = selected_name
+                    st.query_params["mobile_stage"] = "summary"
+                    st.query_params["mobile_outcome"] = outcome
+                    st.rerun()
+        elif mobile_stage == "summary" and selected_is_open:
+            if st.button("Submit outcome · show next lead", type="primary", use_container_width=True, key="mobile_submit_outcome"):
+                st.query_params["day_map_selected"] = next_lead["Name"]
+                st.query_params["mobile_stage"] = "ready"
+                if "mobile_outcome" in st.query_params:
+                    del st.query_params["mobile_outcome"]
+                st.rerun()
+        if not selected_is_open:
+            st.caption("This attendee is already covered or private. Select an open lead to continue.")
+        if st.button("Log out", use_container_width=True, key="mobile_logout_below"):
+            st.query_params["business_logout"] = "1"
+            st.query_params["page"] = "Business Login"
+            st.rerun()
+        st.info("FalkorDB proximity map: distances and directions are simulated. Bright Data confidence is demo data, and private attendees remain hidden.")
+    return step >= 4
 
 
 def _render_phone_prototype() -> None:
@@ -1353,21 +1936,29 @@ st.set_page_config(
 
 if "page" not in st.session_state:
     st.session_state["page"] = "Marketing"
+if "guided_stage" not in st.session_state:
+    st.session_state["guided_stage"] = 1
+if st.query_params.get("home") == "1":
+    st.session_state["page"] = "Marketing"
+    del st.query_params["home"]
+if st.query_params.get("business_logout") == "1":
+    st.session_state["business_step"] = 1
+    st.session_state.pop("day_map_selected", None)
+    st.session_state["business_logged_out"] = True
+    del st.query_params["business_logout"]
+requested_page = st.query_params.get("page")
+if requested_page in PAGES:
+    st.session_state["page"] = requested_page
 if "demo_state" not in st.session_state:
     st.session_state["demo_state"] = new_demo_state()
-if "dark_mode" not in st.session_state:
-    st.session_state["dark_mode"] = False
-_install_styles(dark_mode=st.session_state["dark_mode"])
+_install_styles()
 
 with st.sidebar:
     _render_brand()
-    st.caption("Conference coordination · simulated demo")
-    st.toggle("Dark mode", key="dark_mode")
-    st.caption("Explore")
+    st.caption("Demo")
     nav_icons = {
-        "Marketing": ":material/home:",
-        "Conference setup": ":material/event:",
-        "Business demo": ":material/play_circle:",
+        "Conference Login": ":material/event:",
+        "Business Login": ":material/play_circle:",
     }
     for page in PAGES:
         st.button(
@@ -1379,28 +1970,18 @@ with st.sidebar:
             args=(page,),
             icon=nav_icons[page],
         )
-    st.button(
-        "Conference day simulation",
-        key="nav_conference_day",
-        type="primary" if st.session_state["page"] == "Conference day" else "secondary",
-        use_container_width=True,
-        icon=":material/route:",
-        on_click=_go_to_conference_day,
-    )
     st.divider()
     integrations = (
-        ("database", "FalkorDB", "Team memory · Business demo → Booth tab"),
+        ("database", "FalkorDB", "Team memory · Business Login → Booth tab"),
         (
             "globe",
             "Bright Data",
-            "Configured"
-            if os.getenv("BRIGHT_DATA_API_TOKEN") and os.getenv("BRIGHT_DATA_WEB_UNLOCKER_ZONE")
-            else "Not configured · demo fallback",
+            "Web scraper",
         ),
         (
             "spark",
             "OpenAI",
-            "Configured" if os.getenv("OPENAI_API_KEY") else "Demo fallback",
+            "Configured" if os.getenv("OPENAI_API_KEY") else "Available",
         ),
     )
     if st.session_state["page"] != "Conference day":
@@ -1417,23 +1998,9 @@ with st.sidebar:
 
 if st.session_state["page"] == "Marketing":
     _render_website()
-elif st.session_state["page"] == "Conference setup":
+elif st.session_state["page"] == "Conference Login":
     _render_conference_setup()
-elif st.session_state["page"] == "Business demo":
+elif st.session_state["page"] == "Business Login":
     _render_demo()
 elif st.session_state["page"] == "Conference day":
     render_simulation()
-elif st.session_state["page"] in ("Login", "Sign up"):
-    page_title = "Log in" if st.session_state["page"] == "Login" else "Create your account"
-    st.markdown(
-        f'<div class="ib-coming-soon ib-panel"><div class="ib-label">ACCOUNT ACCESS</div>'
-        f'<h1>{page_title}</h1><p>Coming soon. Account access is not enabled in this prototype.</p>'
-        f'<p>You can join the early-access list from the Marketing page. Your login details are not requested or stored here.</p></div>',
-        unsafe_allow_html=True,
-    )
-    back, other = st.columns(2)
-    back.button("Back to Marketing", on_click=_go_to_marketing, use_container_width=True)
-    if st.session_state["page"] == "Login":
-        other.button("Sign up · Coming soon", on_click=_go_to_signup, use_container_width=True)
-    else:
-        other.button("Log in · Coming soon", on_click=_go_to_login, use_container_width=True)

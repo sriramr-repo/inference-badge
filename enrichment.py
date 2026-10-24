@@ -23,7 +23,10 @@ class EnrichmentError(RuntimeError):
 
 
 def _bright_data_enabled() -> bool:
-    return bool(os.getenv("BRIGHT_DATA_API_TOKEN") and os.getenv("BRIGHT_DATA_WEB_UNLOCKER_ZONE"))
+    return bool(
+        (os.getenv("BRIGHT_DATA_API_TOKEN") or os.getenv("BRIGHT_DATA_TOKEN"))
+        and (os.getenv("BRIGHT_DATA_WEB_UNLOCKER_ZONE") or "inference_badge_scraper")
+    )
 
 
 def enrich_company(company: str) -> dict[str, Any]:
@@ -52,7 +55,7 @@ def enrich_company(company: str) -> dict[str, Any]:
     domain = domain_map.get(company.casefold(), "https://www.google.com/search?q=" + quote(company + " official website"))
     endpoint = os.getenv("BRIGHT_DATA_REQUEST_URL", "https://api.brightdata.com/request")
     payload = {
-        "zone": os.environ["BRIGHT_DATA_WEB_UNLOCKER_ZONE"],
+        "zone": os.getenv("BRIGHT_DATA_WEB_UNLOCKER_ZONE", "inference_badge_scraper"),
         "url": domain,
         "format": "raw",
     }
@@ -60,7 +63,7 @@ def enrich_company(company: str) -> dict[str, Any]:
         response = requests.post(
             endpoint,
             headers={
-                "Authorization": f"Bearer {os.environ['BRIGHT_DATA_API_TOKEN']}",
+                "Authorization": f"Bearer {os.getenv('BRIGHT_DATA_API_TOKEN') or os.getenv('BRIGHT_DATA_TOKEN')}",
                 "Content-Type": "application/json",
             },
             json=payload,

@@ -23,6 +23,9 @@ TARGETS = (
         "temperature": "HOT",
         "why": "VP Engineering at a 1,200-person company, attending the scaling session, hiring engineers.",
         "facts": "1,200 staff · raised $85M · hiring engineers fast",
+        "public_profile": "LinkedIn-style public signal: VP Engineering at Acme Robotics; platform hiring is active.",
+        "graph_insight": "FalkorDB links Sarah to the scaling session and the team's AI-infrastructure focus.",
+        "opener": "Ask how Acme is scaling engineering without slowing delivery.",
     },
     {
         "id": "tom",
@@ -33,6 +36,9 @@ TARGETS = (
         "temperature": "WARM",
         "why": "Head of Platform at a 3,000-person company, expanding its platform team.",
         "facts": "3,000 staff · expanding platform team",
+        "public_profile": "LinkedIn-style public signal: Head of Platform at Northwind Health; platform team is expanding.",
+        "graph_insight": "FalkorDB shows Tom is an uncovered target attending the platform session.",
+        "opener": "Ask what is driving Northwind's next platform hire.",
     },
     {
         "id": "lina",
@@ -43,6 +49,9 @@ TARGETS = (
         "temperature": "WARM",
         "why": "CTO at a growing engineering organization.",
         "facts": "Demo data · engineering leadership",
+        "public_profile": "Public profile preview: CTO at Contoso Energy.",
+        "graph_insight": "FalkorDB marks Lina as a warm engineering-leadership match.",
+        "opener": "Ask which engineering priority is hardest to staff this year.",
     },
     {
         "id": "eli",
@@ -53,6 +62,9 @@ TARGETS = (
         "temperature": "WARM",
         "why": "VP Engineering with a growing product team.",
         "facts": "Demo data · product engineering",
+        "public_profile": "Public profile preview: VP Engineering at Harbor Labs.",
+        "graph_insight": "FalkorDB marks Eli as a warm product-engineering match.",
+        "opener": "Ask how Harbor Labs is balancing product speed and platform quality.",
     },
     {
         "id": "noor",
@@ -63,6 +75,9 @@ TARGETS = (
         "temperature": "WARM",
         "why": "Head of Platform focused on team growth.",
         "facts": "Demo data · platform engineering",
+        "public_profile": "Public profile preview: Head of Platform at Pinecone Health.",
+        "graph_insight": "FalkorDB marks Noor as a warm platform-engineering match.",
+        "opener": "Ask what platform capability the team needs next.",
     },
 )
 BACKGROUND = (
@@ -621,6 +636,29 @@ def _clock(world: dict[str, Any]) -> str:
     ]
 
 
+def _journey_frame(world: dict[str, Any]) -> None:
+    stage = min(world["phase"], 5)
+    stages = ("Setup", "Attendees", "Team prep", "Conference day", "Results")
+    actors = (
+        ("Olivia", "Conference organizer", "Connect the sample conference setup."),
+        ("Sarah + private attendee", "Conference attendees", "Choose what each badge shares."),
+        ("Alice + Bob", "Business field team", "Prepare the lead list and team context."),
+        ("Alice + Bob", "Business field team", "Use the phone to coordinate live conversations."),
+        ("Olivia + field team", "Conference outcomes", "Review clear results and privacy outcomes."),
+    )
+    actor, role, instruction = actors[stage - 1]
+    chips = "".join(
+        f'<span class="ib-journey-chip {"current" if index == stage else "done" if index < stage else "locked"}">{index} · {label}</span>'
+        for index, label in enumerate(stages, 1)
+    )
+    st.markdown(
+        f'<div class="ib-journey-frame"><div class="ib-journey-stepper">{chips}</div>'
+        f'<div class="ib-journey-actor"><strong>{actor}</strong><span> · {role}</span></div>'
+        f'<div class="ib-journey-instruction">{instruction}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
 def _organiser_counters(world: dict[str, Any]) -> None:
     private_active = bool(world["private_badge"] and world["private_sharing"])
     badge_count = int(world["sarah_signed_up"]) + int(private_active)
@@ -880,13 +918,20 @@ def _render_phone_panel(world: dict[str, Any]) -> None:
         if lead:
             st.markdown(f"**{lead['temperature']} · {lead['score']} · {lead['name']}**")
             st.write(f"{lead['role']} · {lead['company']}")
-            st.caption(f"Why this match: {lead['why']}")
-            st.caption(f"Demo data · {lead['facts']}")
-            if lead["id"] == "sarah":
-                st.markdown("**3 THINGS TO SAY · Demo data**")
-                st.write("Ask how the team is scaling engineering. Explore onboarding time. Share a practical platform story.")
+            st.caption("Conference badge details · role, company, session, and opted-in proximity")
+            with st.expander("Why reach this lead", expanded=True):
+                st.write(lead["why"])
+                st.caption(f"Badge signals · {lead['facts']}")
+            with st.expander("Public profile · Bright Data", expanded=True):
+                st.write(lead["public_profile"])
+                st.caption("Demo public signal · no live scrape is performed in this simulation.")
+            with st.expander("Team analysis · FalkorDB", expanded=True):
+                st.write(lead["graph_insight"])
+                st.caption("Graph path: attendee → session → technology focus → teammate coverage")
+            st.markdown("**Best opener**")
+            st.write(lead["opener"])
             st.button(
-                "Connect",
+                "Start conversation",
                 type="primary",
                 on_click=_act,
                 args=("connect_lead", lead["id"]),
@@ -999,6 +1044,14 @@ def render_simulation() -> None:
           font-weight:850; }
         .st-key-simulation-caption { position:sticky; bottom:0; z-index:49;
           background:#FFFBEA; padding:8px 4px; }
+        .ib-journey-frame { margin:16px 0 20px; padding:16px; background:#FFFDF6; border:2px solid #E2D5B8; border-radius:16px; }
+        .ib-journey-stepper { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+        .ib-journey-chip { padding:6px 10px; border-radius:999px; font-size:.78rem; font-weight:800; border:1px solid #E2D5B8; color:#5A6472; background:#F3EAD8; }
+        .ib-journey-chip.current { background:#F5B73E; color:#0B1F3A; border-color:#0B1F3A; }
+        .ib-journey-chip.done { background:#D8F4EA; color:#00755C; }
+        .ib-journey-chip.locked { opacity:.72; }
+        .ib-journey-actor { color:#0B1F3A; font-size:1rem; }
+        .ib-journey-instruction { margin-top:4px; color:#5A6472; }
         @media (max-width: 1100px) {
           .st-key-sim-stage > [data-testid="stLayoutWrapper"] > div[data-testid="stHorizontalBlock"] {
             display:flex; flex-direction:column; gap:1rem;
@@ -1022,6 +1075,7 @@ def render_simulation() -> None:
         '<span class="ib-sim-pill">SIMULATION · Demo conference · No real data</span>',
         unsafe_allow_html=True,
     )
+    _journey_frame(world)
     controls = st.columns([1, 1, 1])
     controls[0].toggle(
         "Free Explore",

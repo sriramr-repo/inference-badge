@@ -107,21 +107,24 @@ def health_check() -> tuple[bool, str]:
         return False, str(exc)
 
 
-def add_early_access_signup(email: str) -> None:
+def add_early_access_signup(email: str, audience: str = "Conference") -> None:
     """Store one explicitly opted-in early-access email in the graph backend."""
     normalized_email = email.strip().lower()
     if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", normalized_email):
         raise ValueError("Enter a valid email address.")
 
+    if audience not in ("Conference", "Business"):
+        raise ValueError("Choose Conference or Business.")
     run_query(
         """
         MERGE (signup:EarlyAccessSignup {email:$email})
         ON CREATE SET signup.createdAt=$created_at
-        SET signup.consent=true
+        SET signup.consent=true, signup.audience=$audience
         """,
         {
             "email": normalized_email,
             "created_at": datetime.now(timezone.utc).isoformat(),
+            "audience": audience,
         },
     )
 
