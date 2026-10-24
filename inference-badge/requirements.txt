@@ -1,0 +1,5 @@
+streamlit>=1.40,<2
+falkordb>=1.0.0
+openai>=1.50.0
+pandas>=2.2
+requests>=2.32
